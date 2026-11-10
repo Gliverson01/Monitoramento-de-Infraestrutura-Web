@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rules:
+    name: Configuração e testes das regras
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: promtool check config
+        run: |
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            -v "$PWD/prometheus/rules:/etc/prometheus/rules:ro" \
+            prom/prometheus:v3.1.0 check config /etc/prometheus/prometheus.yml
+      - name: promtool test rules
+        run: |
+          docker run --rm --entrypoint promtool -w /work/prometheus/tests \
+            -v "$PWD:/work:ro" prom/prometheus:v3.1.0 test rules slo_test.yml
+      - name: Dashboard é JSON válido
+        run: python3 -m json.tool grafana/dashboards/site.json > /dev/null
+
+  smoke:
+    name: Stack sobe e sonda o site
+    needs: rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up -d
+      - name: Prometheus coleta a sondagem
+        run: |
+          for i in $(seq 1 30); do
+            n=$(curl -s 'http://localhost:9090/api/v1/query?query=probe_success' | jq '.data.result | length')
+            [ "${n:-0}" -ge 2 ] && break
+            sleep 5
+          done
+          curl -s 'http://localhost:9090/api/v1/query?query=probe_success' \
+            | jq -r '.data.result[] | "\(.metric.instance) sucesso=\(.value[1])"'
+          [ "${n:-0}" -ge 2 ] || { echo "sem resultado de sondagem"; exit 1; }
+      - name: Regras carregadas
+        run: |
+          curl -s http://localhost:9090/api/v1/rules | jq -e '[.data.groups[].rules[]] | length >= 12'
+      - name: Grafana com o dashboard provisionado
+        run: |
+          for i in $(seq 1 30); do curl -sf http://localhost:3000/api/health && break; sleep 3; done
+          curl -sf 'http://localhost:3000/api/dashboards/uid/site-slo' | jq -e '.dashboard.title'
+      - if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down -v

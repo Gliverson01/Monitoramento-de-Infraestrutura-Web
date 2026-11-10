@@ -1,0 +1,29 @@
+name: checagem-sintetica
+
+# Acessa o site a cada 5 minutos. Serve de alerta (falha do job = e-mail do GitHub) e mantém o
+# serviço gratuito do Render acordado (ele dorme após ~15 min sem acesso).
+# Observação: o GitHub pode atrasar execuções agendadas em horário de pico.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Acessar o site
+        run: |
+          url="https://www.gliversonalmeida.com.br/"
+          read -r code total < <(curl -sS -L -o /dev/null --max-time 90 \
+            -A "site-monitor (+https://github.com/${GITHUB_REPOSITORY})" \
+            -w '%{http_code} %{time_total}' "$url" || echo "000 0")
+          echo "| URL | HTTP | Tempo (s) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| $url | $code | $total |" >> "$GITHUB_STEP_SUMMARY"
+          echo "HTTP $code em ${total}s"
+          [ "$code" = "200" ] || { echo "::error::site respondeu HTTP $code"; exit 1; }

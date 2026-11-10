@@ -1,0 +1,80 @@
+# SLO do site
+#   Disponibilidade: 99,5% das sondagens com sucesso em 30 dias (orçamento de erro: 0,5%, ~3h36 por mês).
+#   Latência: 95% das sondagens respondidas em menos de 1,5 s.
+#
+# Os alertas de orçamento seguem o modelo de queima em múltiplas janelas do livro de SRE do Google:
+#   queima rápida: 14,4x o ritmo permitido em 1h (e ainda acontecendo nos últimos 5 min)  -> gasta 2% do mês em 1h
+#   queima lenta:   6x o ritmo permitido em 6h (e ainda acontecendo nos últimos 30 min)   -> gasta 5% do mês em 6h
+# 14,4 x 0,005 = 0,072  |  6 x 0,005 = 0,03
+
+groups:
+  - name: site-sli
+    rules:
+      - record: sli:probe_success:ratio_avg5m
+        expr: avg_over_time(probe_success{job="blackbox-http"}[5m])
+      - record: sli:probe_success:ratio_avg1h
+        expr: avg_over_time(probe_success{job="blackbox-http"}[1h])
+      - record: sli:probe_success:ratio_avg1d
+        expr: avg_over_time(probe_success{job="blackbox-http"}[1d])
+      - record: sli:probe_success:ratio_avg30d
+        expr: avg_over_time(probe_success{job="blackbox-http"}[30d])
+      - record: slo:error_budget_remaining:ratio30d
+        expr: 1 - (1 - sli:probe_success:ratio_avg30d) / (1 - 0.995)
+      - record: sli:probe_fast:ratio_avg1h
+        expr: avg_over_time((probe_duration_seconds{job="blackbox-http"} < bool 1.5)[1h:30s])
+
+  - name: site-alerts
+    rules:
+      - alert: SiteDown
+        expr: probe_success{job="blackbox-http"} == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Site fora do ar: {{ $labels.instance }}"
+
+      - alert: SiteErrorBudgetFastBurn
+        expr: |
+          (1 - avg_over_time(probe_success{job="blackbox-http"}[1h])) > 0.072
+          and
+          (1 - avg_over_time(probe_success{job="blackbox-http"}[5m])) > 0.072
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Queima rápida do orçamento de erro: {{ $labels.instance }}"
+
+      - alert: SiteErrorBudgetSlowBurn
+        expr: |
+          (1 - avg_over_time(probe_success{job="blackbox-http"}[6h])) > 0.03
+          and
+          (1 - avg_over_time(probe_success{job="blackbox-http"}[30m])) > 0.03
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Queima lenta do orçamento de erro: {{ $labels.instance }}"
+
+      - alert: SiteSlow
+        expr: avg_over_time((probe_duration_seconds{job="blackbox-http"} < bool 1.5)[1h:30s]) < 0.95
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Menos de 95% das respostas abaixo de 1,5 s na última hora: {{ $labels.instance }}"
+
+      - alert: TLSCertExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry{job="blackbox-http"} - time()) / 86400 < 14
+        for: 1h
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Certificado TLS vence em menos de 14 dias: {{ $labels.instance }}"
+
+      - alert: BlackboxExporterDown
+        expr: up{job="blackbox-exporter"} == 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Blackbox exporter fora do ar: as sondagens pararam"

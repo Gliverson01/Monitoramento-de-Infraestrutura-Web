@@ -1,0 +1,14 @@
+modules:
+  http_2xx:
+    prober: http
+    # 20 s cobre a resposta normal; o despertar do Render gratuito (30 a 60 s) conta como falha,
+    # porque é o que o visitante sente.
+    timeout: 20s
+    http:
+      method: GET
+      valid_status_codes: []        # vazio = qualquer 2xx
+      follow_redirects: true
+      preferred_ip_protocol: ip4
+      fail_if_not_ssl: true
+      headers:
+        User-Agent: site-monitor (+https://github.com/Gliverson01/Monitoramento-de-Infraestrutura-Web)

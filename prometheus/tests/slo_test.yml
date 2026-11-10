@@ -1,0 +1,68 @@
+# promtool test rules prometheus/tests/slo_test.yml
+rule_files:
+  - ../rules/slo.yml
+
+evaluation_interval: 1m
+
+tests:
+  # 1h saudável e depois o site cai por 20 min.
+  - interval: 30s
+    input_series:
+      - series: 'probe_success{job="blackbox-http", instance="https://example.com/"}'
+        values: '1x120 0x40'
+    alert_rule_test:
+      # Antes da queda: nenhum alerta.
+      - eval_time: 50m
+        alertname: SiteDown
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: SiteErrorBudgetFastBurn
+        exp_alerts: []
+      # 15 min depois da queda: fora do ar e queima rápida disparados.
+      - eval_time: 75m
+        alertname: SiteDown
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: blackbox-http
+              instance: https://example.com/
+            exp_annotations:
+              summary: "Site fora do ar: https://example.com/"
+      - eval_time: 75m
+        alertname: SiteErrorBudgetFastBurn
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: blackbox-http
+              instance: https://example.com/
+            exp_annotations:
+              summary: "Queima rápida do orçamento de erro: https://example.com/"
+      # A queima lenta precisa de 15 min sustentados: às 75m ainda está pendente.
+      - eval_time: 75m
+        alertname: SiteErrorBudgetSlowBurn
+        exp_alerts: []
+
+  # Uma falha isolada (ex.: o Render acordando) não deve acordar ninguém.
+  - interval: 30s
+    input_series:
+      - series: 'probe_success{job="blackbox-http", instance="https://example.com/"}'
+        values: '1x120 0 1x40'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: SiteDown
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: SiteErrorBudgetFastBurn
+        exp_alerts: []
+
+  # Orçamento restante: 1 falha em 400 sondagens = 0,25% de erro = metade do orçamento de 0,5%.
+  - interval: 30s
+    input_series:
+      - series: 'probe_success{job="blackbox-http", instance="https://example.com/"}'
+        values: '0 1x398'
+    promql_expr_test:
+      - expr: slo:error_budget_remaining:ratio30d
+        eval_time: 200m
+        exp_samples:
+          - labels: 'slo:error_budget_remaining:ratio30d{job="blackbox-http", instance="https://example.com/"}'
+            value: 0.5
