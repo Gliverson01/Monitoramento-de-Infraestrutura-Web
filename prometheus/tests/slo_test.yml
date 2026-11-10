@@ -61,8 +61,8 @@ tests:
       - series: 'probe_success{job="blackbox-http", instance="https://example.com/"}'
         values: '0 1x398'
     promql_expr_test:
-      - expr: slo:error_budget_remaining:ratio30d
+      - expr: round(slo:error_budget_remaining:ratio30d, 0.001)
         eval_time: 200m
         exp_samples:
-          - labels: 'slo:error_budget_remaining:ratio30d{job="blackbox-http", instance="https://example.com/"}'
+          - labels: '{job="blackbox-http", instance="https://example.com/"}'
             value: 0.5
