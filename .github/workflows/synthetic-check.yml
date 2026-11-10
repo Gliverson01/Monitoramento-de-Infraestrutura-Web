@@ -21,8 +21,7 @@ jobs:
           url="https://www.gliversonalmeida.com.br/"
           read -r code total < <(curl -sS -L -o /dev/null --max-time 90 \
             -A "site-monitor (+https://github.com/${GITHUB_REPOSITORY})" \
-            -w '%{http_code} %{time_total}
-' "$url" || echo "000 0")
+            -w '%{http_code} %{time_total}\n' "$url" || echo "000 0")
           echo "| URL | HTTP | Tempo (s) |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
           echo "| $url | $code | $total |" >> "$GITHUB_STEP_SUMMARY"
